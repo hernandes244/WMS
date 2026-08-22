@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block content %}<h2>Pedidos</h2><table class="table"><tr><th>Pedido</th><th>Cliente</th><th>Prioridade</th><th>Status</th><th>Itens</th></tr>{% for o in orders %}<tr><td>{{o.number}}</td><td>{{o.customer}}</td><td>{{o.priority}}</td><td>{{o.get_status_display}}</td><td>{{o.items.count}}</td></tr>{% endfor %}</table>{% endblock %}
