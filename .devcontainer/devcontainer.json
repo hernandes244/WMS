@@ -1,0 +1,8 @@
+{
+  "name": "WMS",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "web",
+  "workspaceFolder": "/app",
+  "forwardPorts": [8000, 5432],
+  "postCreateCommand": "python manage.py migrate"
+}
