@@ -1,1 +1,16 @@
-{% extends 'base.html' %}{% block content %}<h1 class="mb-4">Dashboard WMS</h1><div class="row g-3">{% for label,value in [('Produtos',products),('Estoque',stock_total),('Reservado',reserved),('Bloqueado',blocked),('Entradas pendentes',receipts),('Pedidos pendentes',orders),('Separações',pickings),('Movimentações',movements)] %}<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">{{ label }}</small><h3>{{ value }}</h3></div></div></div>{% endfor %}</div><div class="card mt-4"><div class="card-body"><h5>Pedidos por status</h5><canvas id="chart"></canvas></div></div><script>new Chart(document.getElementById('chart'),{type:'bar',data:{labels:[{% for x in orders_by_status %}'{{x.status}}',{% endfor %}],datasets:[{label:'Pedidos',data:[{% for x in orders_by_status %}{{x.total}},{% endfor %}]}]}});</script>{% endblock %}
+{% extends 'base.html' %}
+{% block content %}
+<h1 class="mb-4">Dashboard WMS</h1>
+<div class="row g-3">
+<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">Produtos</small><h3>{{ products }}</h3></div></div></div>
+<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">Estoque</small><h3>{{ stock_total }}</h3></div></div></div>
+<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">Reservado</small><h3>{{ reserved }}</h3></div></div></div>
+<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">Bloqueado</small><h3>{{ blocked }}</h3></div></div></div>
+<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">Entradas pendentes</small><h3>{{ receipts }}</h3></div></div></div>
+<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">Pedidos pendentes</small><h3>{{ orders }}</h3></div></div></div>
+<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">Separações</small><h3>{{ pickings }}</h3></div></div></div>
+<div class="col-md-3"><div class="card shadow-sm"><div class="card-body"><small class="text-muted">Movimentações</small><h3>{{ movements }}</h3></div></div></div>
+</div>
+<div class="card mt-4"><div class="card-body"><h5>Pedidos por status</h5><canvas id="chart"></canvas></div></div>
+<script>new Chart(document.getElementById('chart'),{type:'bar',data:{labels:[{% for x in orders_by_status %}'{{ x.status }}',{% endfor %}],datasets:[{label:'Pedidos',data:[{% for x in orders_by_status %}{{ x.total }},{% endfor %}]}]}});</script>
+{% endblock %}
