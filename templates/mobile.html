@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827"><title>WMS Mobile</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f3f4f6;color:#111827}header{background:#111827;color:white;padding:16px;font-size:20px;font-weight:700;display:flex;justify-content:space-between}.wrap{max-width:520px;margin:auto;padding:14px}.card{background:white;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 10px #0001}input,select,button{width:100%;padding:13px;border-radius:10px;border:1px solid #d1d5db;font-size:16px;margin-top:8px}button{background:#111827;color:white;border:0;font-weight:700}button.secondary{background:#e5e7eb;color:#111827}.hidden{display:none}.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}.tabs button{margin:0}.result{margin-top:12px;padding:12px;border-radius:10px;background:#f9fafb}.ok{border-left:5px solid #16a34a}.error{border-left:5px solid #dc2626}.small{font-size:13px;color:#6b7280}#reader{width:100%;margin-top:12px;overflow:hidden;border-radius:12px}.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stockline{padding:8px 0;border-bottom:1px solid #eee}
+</style></head>
+<body>
+<header><span>📦 WMS Mobile</span><span id="userLabel"></span></header>
+<div class="wrap">
+<div id="login" class="card">
+<h2>Entrar</h2><input id="username" placeholder="Usuário" autocomplete="username"><input id="password" type="password" placeholder="Senha" autocomplete="current-password"><button onclick="doLogin()">ENTRAR</button><div id="loginMsg" class="result hidden"></div>
+</div>
+<div id="app" class="hidden">
+<div class="card tabs"><button onclick="showTab('consulta')">🔎 Consultar</button><button onclick="showTab('transferencia')">🔄 Transferir</button></div>
+<section id="consulta" class="card"><h2>Leitura de produto</h2><p class="small">Aponte a câmera para EAN, Code 128, QR Code ou outro código compatível.</p><button onclick="startScanner()">📷 ABRIR CÂMERA</button><div id="reader"></div><input id="manualCode" placeholder="Ou digite o código"><button class="secondary" onclick="lookup(document.getElementById('manualCode').value)">CONSULTAR</button><div id="scanResult"></div></section>
+<section id="transferencia" class="card hidden"><h2>Transferência</h2><button onclick="startTransferScanner()">📷 ESCANEAR PRODUTO</button><div id="transferProduct" class="result">Nenhum produto selecionado.</div><div class="row"><div><label>Origem</label><select id="source"></select></div><div><label>Destino</label><select id="destination"></select></div></div><input id="qty" type="number" min="0.001" step="0.001" placeholder="Quantidade"><button onclick="doTransfer()">CONFIRMAR TRANSFERÊNCIA</button><div id="transferMsg" class="result hidden"></div></section>
+<button class="secondary" onclick="logout()">SAIR</button>
+</div></div>
+<script>
+const API='/api/mobile/'; let token=localStorage.getItem('wms_token')||''; let scanner=null; let selectedProduct=null;
+function authHeaders(){return {'Authorization':'Token '+token,'Content-Type':'application/json'}}
+function msg(id,text,ok=false){const e=document.getElementById(id);e.className='result '+(ok?'ok':'error');e.textContent=text;e.classList.remove('hidden')}
+async function doLogin(){const r=await fetch(API+'login/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:username.value,password:password.value})});const d=await r.json();if(!r.ok)return msg('loginMsg',d.error||'Falha no login');token=d.token;localStorage.setItem('wms_token',token);userLabel.textContent=d.user;login.classList.add('hidden');app.classList.remove('hidden');loadAddresses()}
+async function lookup(code){code=(code||'').trim();if(!code)return msg('scanResult','Informe ou leia um código.');const r=await fetch(API+'scan/?code='+encodeURIComponent(code),{headers:authHeaders()});const d=await r.json();if(!r.ok)return msg('scanResult',d.error||'Produto não encontrado.');selectedProduct=d.product;let html='<b>'+d.product.description+'</b><br>Código: '+d.product.code+'<br>Unidade: '+d.product.unit+'<br><br><b>Estoque</b>';if(!d.stock.length)html+='<br>Sem saldo cadastrado.';d.stock.forEach(s=>html+='<div class="stockline">📍 '+s.address+' — disponível: <b>'+s.available+'</b> — total: '+s.quantity+(s.lot?' — lote '+s.lot:'')+'</div>');document.getElementById('scanResult').innerHTML='<div class="result ok">'+html+'</div>'}
+function startScanner(){stopScanner();scanner=new Html5Qrcode('reader');scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:180}},text=>{stopScanner();lookup(text)},()=>{}).catch(e=>msg('scanResult','Não foi possível abrir a câmera. Use HTTPS e permita o acesso à câmera.'))}
+function startTransferScanner(){stopScanner();scanner=new Html5Qrcode('reader');showTab('consulta');scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:180}},text=>{stopScanner();lookup(text);if(selectedProduct){document.getElementById('transferProduct').innerHTML='<b>'+selectedProduct.description+'</b><br>'+selectedProduct.code;showTab('transferencia')}},()=>{}).catch(e=>msg('transferMsg','Não foi possível abrir a câmera.'))}
+function stopScanner(){if(scanner){scanner.stop().catch(()=>{});scanner.clear().catch(()=>{});scanner=null}}
+async function loadAddresses(){const r=await fetch(API+'addresses/',{headers:authHeaders()});if(!r.ok)return;const d=await r.json();['source','destination'].forEach(id=>document.getElementById(id).innerHTML=d.addresses.map(a=>'<option value="'+a.id+'">'+a.code+'</option>').join(''))}
+async function doTransfer(){if(!selectedProduct)return msg('transferMsg','Escaneie um produto primeiro.');const q=document.getElementById('qty').value;const body={product_id:selectedProduct.id,source_id:source.value,destination_id:destination.value,quantity:q};const r=await fetch(API+'transfer/',{method:'POST',headers:authHeaders(),body:JSON.stringify(body)});const d=await r.json();msg('transferMsg',d.message||d.error||'Erro',r.ok);if(r.ok)lookup(selectedProduct.code)}
+function showTab(t){document.getElementById('consulta').classList.toggle('hidden',t!=='consulta');document.getElementById('transferencia').classList.toggle('hidden',t!=='transferencia');if(t==='consulta'){} }
+function logout(){stopScanner();localStorage.removeItem('wms_token');location.reload()}
+async function init(){if(!token)return;const r=await fetch(API+'me/',{headers:authHeaders()});if(r.ok){const d=await r.json();userLabel.textContent=d.user;login.classList.add('hidden');app.classList.remove('hidden');loadAddresses()}else localStorage.removeItem('wms_token')}
+init();
+</script></body></html>
