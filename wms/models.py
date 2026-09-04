@@ -9,6 +9,15 @@ class Product(models.Model):
     active=models.BooleanField(default=True)
     def __str__(self): return f'{self.code} - {self.description}'
 
+class ProductBarcode(models.Model):
+    product=models.ForeignKey(Product,related_name='barcodes',on_delete=models.CASCADE)
+    code=models.CharField(max_length=80,unique=True)
+    kind=models.CharField(max_length=30,default='EAN/QR')
+    active=models.BooleanField(default=True)
+    class Meta:
+        ordering=['code']
+    def __str__(self): return f'{self.code} -> {self.product.code}'
+
 class Address(models.Model):
     code=models.CharField(max_length=40,unique=True)
     aisle=models.CharField(max_length=20,blank=True)
