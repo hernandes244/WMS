@@ -1,3 +1,7 @@
 from django.contrib import admin
 from django.urls import include,path
-urlpatterns=[path('admin/',admin.site.urls),path('',include('wms.urls'))]
+urlpatterns=[
+    path('admin/',admin.site.urls),
+    path('api/mobile/',include('wms.mobile_urls')),
+    path('',include('wms.urls')),
+]
