@@ -1,73 +1,108 @@
 # WMS
 
-Sistema de gerenciamento de armazém (WMS) com estoque, recebimento detalhado, movimentações, pedidos, separação e dashboards.
+Sistema de gerenciamento de armazém (WMS) com estoque, recebimento detalhado, armazenagem, inventário, pedidos, separação, dashboards e operação mobile por smartphone.
 
 ## Stack
 - Python 3.12 + Django 5
 - Django REST Framework + Token Authentication
 - PostgreSQL
 - Docker / Docker Compose
-- WMS Mobile em PWA responsiva
-- Câmera do celular para leitura de códigos
+- WMS Mobile responsivo
+- Câmera do celular para EAN, QR Code, Code 128 e IMEI
 
-## Módulos
-- Dashboard operacional
-- Cadastro de produtos, códigos de barras e endereços
-- Estoque por produto/endereço/lote
-- Entrada de mercadorias
-- Movimentação interna
-- Pedidos e itens
-- Separação por pedido
-- Histórico de movimentações
-- Administração Django
-- API autenticada para operação mobile
-- Consulta de produto por EAN/QR/Code
-- Transferência de estoque pelo celular
+## Operação pelo celular
+Abra `/mobile/` no navegador do Android. O mesmo backend atende o painel web e o mobile.
 
-## WMS pelo celular
-Abra `/mobile/` no navegador do Android. O operador faz login e pode:
+### Recebimento
+- Seleção da entrada
+- Leitura do produto pela câmera
+- Quantidade
+- Lote e validade
+- Endereço de destino
+- Controle de IMEI quando o produto exigir
+- Atualização automática do estoque e histórico
 
-1. Tocar em **ABRIR CÂMERA**.
-2. Ler EAN, Code 128, QR Code e outros formatos suportados pela biblioteca de câmera.
-3. Consultar produto e estoque por endereço.
-4. Fazer transferência de estoque pelo celular.
+### Armazenagem / movimentação
+- Produto por câmera
+- Origem
+- Quantidade
+- Destino
+- Validação de saldo disponível
+- Registro da movimentação
+- Transferência de IMEIs quando aplicável
 
-A câmera exige um contexto seguro no navegador. Em produção, use HTTPS. Para desenvolvimento, `localhost` é permitido pelos navegadores modernos; acessar por IP HTTP a partir de outro celular pode bloquear a câmera.
+### Inventário
+- Produto por câmera
+- Endereço
+- Quantidade contada
+- Lote opcional
+- Ajuste automático do saldo
+- Registro da diferença no histórico
+
+### Separação
+- Consulta de pedidos pendentes
+- Seleção de um ou vários pedidos
+- Geração automática da separação por endereço e estoque disponível
+- Reserva do estoque
+- Tarefa guiada por endereço/produto
+- Bloqueio de produto errado
+- Bloqueio de endereço errado
+- Controle de quantidade
+- Baixa da reserva ao separar
+- Atualização do status da separação e do pedido
+
+### IMEI
+- 15 dígitos
+- Somente numérico
+- Validação Luhn
+- Verificação de cadastro
+- Verificação do produto associado
+- Verificação de status
+- Bloqueio de IMEI duplicado no recebimento
 
 ## API mobile
 - `POST /api/mobile/login/`
 - `GET /api/mobile/me/`
 - `GET /api/mobile/scan/?code=...`
 - `GET /api/mobile/addresses/`
+- `GET /api/mobile/receipts/`
+- `POST /api/mobile/receive/`
 - `POST /api/mobile/transfer/`
+- `POST /api/mobile/inventory/`
+- `GET /api/mobile/orders/`
+- `POST /api/mobile/picking/create/`
+- `GET /api/mobile/pickings/`
+- `POST /api/mobile/picking/pick/`
+- `POST /api/mobile/imei/validate/`
 
-As rotas protegidas usam `Authorization: Token <token>`.
+Rotas protegidas usam `Authorization: Token <token>`.
 
-## Executar com Docker
+## Banco de dados
+A migração `0002_mobile.py` cria as estruturas de códigos de barras e IMEI. Depois de atualizar o projeto, execute:
+
+```bash
+python manage.py migrate
+```
+
+Com Docker:
 
 ```bash
 docker compose up --build
 ```
 
-Depois acesse `http://localhost:8000` no computador.
-
-Criar usuário administrador:
+E, se necessário:
 
 ```bash
+docker compose exec web python manage.py migrate
 docker compose exec web python manage.py createsuperuser
 ```
 
-Depois cadastre produtos, endereços e códigos de barras em `/admin/`.
+## Acesso no celular
+Em produção, publique o WMS com HTTPS e acesse:
 
-## Executar localmente
+`https://SEU-DOMINIO/mobile/`
 
-```bash
-python -m venv .venv
-.venv\\Scripts\\activate  # Windows
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver
-```
+A câmera do navegador exige contexto seguro. Em desenvolvimento, `localhost` funciona no próprio aparelho; acessar um IP HTTP de outro dispositivo pode impedir o acesso à câmera.
 
-## Próxima evolução
-A arquitetura está preparada para evoluir o celular/PWA para aplicativo Android nativo, adicionar recebimento completo, inventário, separação guiada, conferência, expedição, IMEI, operação offline e sincronização.
+## Próximas etapas
+A base agora está preparada para receber som, vibração, confirmação visual, modo offline com fila de sincronização, conferência, expedição, impressão de etiquetas, dashboards avançados e integração futura com coletores Zebra/Urovo sem trocar a API central.
