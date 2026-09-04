@@ -2,17 +2,13 @@ from decimal import Decimal, InvalidOperation
 from datetime import date
 from django.contrib.auth import authenticate
 from django.db import transaction
-from rest_framework import status
+from django.db.models import F
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from .models import Product, ProductBarcode, Address, Stock, Movement, Receipt, ReceiptItem, Lot, Order, OrderItem, Picking, PickingItem, Imei
-
-
-def auth():
-    return [TokenAuthentication], [IsAuthenticated]
+from .models import Product, ProductBarcode, Address, Stock, Movement, Receipt, ReceiptItem, Lot, Order, Picking, PickingItem, Imei
 
 def product_payload(product):
     return {'id':product.id,'code':product.code,'description':product.description,'unit':product.unit,'imei_control':product.imei_control,'barcodes':list(product.barcodes.filter(active=True).values_list('code',flat=True))}
@@ -27,7 +23,9 @@ def luhn(value):
     total=0
     for i,d in enumerate(value):
         n=int(d)
-        if i%2==0: n=n*2; n=n-9 if n>9 else n
+        if i%2==0:
+            n*=2
+            if n>9: n-=9
         total+=n
     return total%10==0
 
@@ -80,20 +78,15 @@ def receipts(request):
 @permission_classes([IsAuthenticated])
 def receive(request):
     try:
-        receipt=Receipt.objects.get(pk=int(request.data.get('receipt_id')))
-        product=Product.objects.get(pk=int(request.data.get('product_id')),active=True)
-        address=Address.objects.get(pk=int(request.data.get('address_id')),active=True)
-        quantity=parse_qty(request.data.get('quantity'))
-    except (Receipt.DoesNotExist,Product.DoesNotExist,Address.DoesNotExist,TypeError,ValueError,InvalidOperation):
-        return Response({'ok':False,'error':'Dados de recebimento inválidos.'},status=400)
-    lot_code=str(request.data.get('lot_code','')).strip(); expiry_raw=str(request.data.get('expiry','')).strip()
-    expiry=None
+        receipt=Receipt.objects.get(pk=int(request.data.get('receipt_id'))); product=Product.objects.get(pk=int(request.data.get('product_id')),active=True); address=Address.objects.get(pk=int(request.data.get('address_id')),active=True); quantity=parse_qty(request.data.get('quantity'))
+    except (Receipt.DoesNotExist,Product.DoesNotExist,Address.DoesNotExist,TypeError,ValueError,InvalidOperation): return Response({'ok':False,'error':'Dados de recebimento inválidos.'},status=400)
+    lot_code=str(request.data.get('lot_code','')).strip(); expiry_raw=str(request.data.get('expiry','')).strip(); expiry=None
     if expiry_raw:
         try: expiry=date.fromisoformat(expiry_raw)
         except ValueError: return Response({'ok':False,'error':'Validade inválida. Use AAAA-MM-DD.'},status=400)
     imeis=[str(x).strip() for x in request.data.get('imeis',[]) if str(x).strip()]
     if product.imei_control:
-        if len(imeis)!=int(quantity) or len(set(imeis))!=len(imeis): return Response({'ok':False,'error':'Produto com controle de IMEI exige um IMEI único para cada unidade recebida.'},status=400)
+        if quantity != int(quantity) or len(imeis)!=int(quantity) or len(set(imeis))!=len(imeis): return Response({'ok':False,'error':'Produto com controle de IMEI exige um IMEI único para cada unidade recebida.'},status=400)
         if any(not luhn(x) for x in imeis): return Response({'ok':False,'error':'Existe IMEI inválido. Deve ter 15 dígitos e passar no Luhn.'},status=400)
         if Imei.objects.filter(number__in=imeis).exists(): return Response({'ok':False,'error':'Um ou mais IMEIs já estão cadastrados.'},status=409)
     with transaction.atomic():
@@ -113,8 +106,7 @@ def receive(request):
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def transfer(request):
-    try:
-        product_id=int(request.data.get('product_id')); source_id=int(request.data.get('source_id')); destination_id=int(request.data.get('destination_id')); quantity=parse_qty(request.data.get('quantity'))
+    try: product_id=int(request.data.get('product_id')); source_id=int(request.data.get('source_id')); destination_id=int(request.data.get('destination_id')); quantity=parse_qty(request.data.get('quantity'))
     except (TypeError,ValueError,InvalidOperation): return Response({'ok':False,'error':'Dados de transferência inválidos.'},status=400)
     if source_id==destination_id: return Response({'ok':False,'error':'Origem e destino devem ser diferentes.'},status=400)
     lot_id=request.data.get('lot_id')
@@ -126,8 +118,9 @@ def transfer(request):
         destination,_=Stock.objects.select_for_update().get_or_create(product_id=product_id,address_id=destination_id,lot=source.lot,defaults={'quantity':0})
         source.quantity-=quantity; destination.quantity+=quantity; source.save(update_fields=['quantity']); destination.save(update_fields=['quantity'])
         Movement.objects.create(product_id=product_id,source_id=source_id,destination_id=destination_id,quantity=quantity,movement_type='TRANSFER',reference='MOBILE',user=request.user)
-        if Imei.objects.filter(product_id=product_id,address_id=source_id,status='AVAILABLE').exists():
-            Imei.objects.filter(product_id=product_id,address_id=source_id,status='AVAILABLE').order_by('id')[:int(quantity)].update(address_id=destination_id)
+        if product_id and int(quantity)==quantity:
+            ids=list(Imei.objects.filter(product_id=product_id,address_id=source_id,status='AVAILABLE').values_list('id',flat=True)[:int(quantity)])
+            if ids: Imei.objects.filter(id__in=ids).update(address_id=destination_id)
     return Response({'ok':True,'message':'Transferência realizada com sucesso.'})
 
 @api_view(['POST'])
@@ -142,7 +135,7 @@ def inventory(request):
     with transaction.atomic():
         stock,_=Stock.objects.select_for_update().get_or_create(product=product,address=address,lot=lot,defaults={'quantity':0})
         old=stock.quantity; delta=counted-old; stock.quantity=counted; stock.save(update_fields=['quantity'])
-        Movement.objects.create(product=product,source=address,destination=address,quantity=abs(delta),movement_type='ADJUST',reference=f'INVENTORY old={old} new={counted}',user=request.user)
+        if delta: Movement.objects.create(product=product,source=address,destination=address,quantity=abs(delta),movement_type='ADJUST',reference=f'INVENTORY old={old} new={counted}',user=request.user)
     return Response({'ok':True,'message':f'Inventário confirmado. Saldo ajustado de {old} para {counted}.','difference':str(delta)})
 
 @api_view(['GET'])
@@ -160,7 +153,7 @@ def orders(request):
 def create_picking(request):
     order_ids=request.data.get('order_ids') or []
     if not order_ids: return Response({'ok':False,'error':'Selecione pelo menos um pedido.'},status=400)
-    try: orders_q=list(Order.objects.filter(id__in=[int(x) for x in order_ids],status__in=['RECEIVED','RELEASED']).prefetch_related('items__product'))
+    try: ids=[int(x) for x in order_ids]; orders_q=list(Order.objects.filter(id__in=ids,status__in=['RECEIVED','RELEASED']).prefetch_related('items__product'))
     except (TypeError,ValueError): return Response({'ok':False,'error':'Pedidos inválidos.'},status=400)
     if not orders_q: return Response({'ok':False,'error':'Nenhum pedido elegível.'},status=400)
     with transaction.atomic():
@@ -174,8 +167,7 @@ def create_picking(request):
                 for s in stocks:
                     take=min(remaining,s.available)
                     if take>0:
-                        PickingItem.objects.create(picking=p,order_item=oi,address=s.address,quantity=take)
-                        s.reserved+=take; s.save(update_fields=['reserved']); remaining-=take
+                        PickingItem.objects.create(picking=p,order_item=oi,address=s.address,quantity=take); s.reserved+=take; s.save(update_fields=['reserved']); remaining-=take
                     if remaining<=0: break
         if not p.items.exists(): p.delete(); return Response({'ok':False,'error':'Não há estoque disponível para os pedidos selecionados.'},status=409)
     return Response({'ok':True,'message':f'Separação {p.number} gerada.','picking_id':p.id,'number':p.number})
@@ -186,10 +178,7 @@ def create_picking(request):
 def pickings(request):
     data=[]
     for p in Picking.objects.filter(status__in=['RELEASED','RUNNING']).order_by('created_at')[:50]:
-        items=[]
-        for i in p.items.select_related('order_item__order','order_item__product','address'):
-            items.append({'id':i.id,'order':i.order_item.order.number,'product':product_payload(i.order_item.product),'address_id':i.address_id,'address':i.address.code,'quantity':str(i.quantity),'picked':str(i.picked)})
-        data.append({'id':p.id,'number':p.number,'status':p.status,'items':items})
+        data.append({'id':p.id,'number':p.number,'status':p.status,'items':[{'id':i.id,'order':i.order_item.order.number,'product':product_payload(i.order_item.product),'address_id':i.address_id,'address':i.address.code,'quantity':str(i.quantity),'picked':str(i.picked)} for i in p.items.select_related('order_item__order','order_item__product','address')]})
     return Response({'ok':True,'pickings':data})
 
 @api_view(['POST'])
@@ -198,8 +187,7 @@ def pickings(request):
 def pick(request):
     try: item=PickingItem.objects.select_related('order_item__product','order_item__order','address').get(pk=int(request.data.get('picking_item_id'))); quantity=parse_qty(request.data.get('quantity'))
     except (PickingItem.DoesNotExist,TypeError,ValueError,InvalidOperation): return Response({'ok':False,'error':'Item de separação inválido.'},status=400)
-    scanned_code=str(request.data.get('code','')).strip(); scanned_address=str(request.data.get('address','')).strip()
-    product=item.order_item.product
+    scanned_code=str(request.data.get('code','')).strip(); scanned_address=str(request.data.get('address','')).strip(); product=item.order_item.product
     barcode=ProductBarcode.objects.filter(code=scanned_code,active=True,product=product).exists() or scanned_code==product.code
     if not barcode: return Response({'ok':False,'error':'PRODUTO ERRADO. A leitura não corresponde ao item da separação.'},status=409)
     if scanned_address and scanned_address!=item.address.code: return Response({'ok':False,'error':'ENDEREÇO ERRADO. Vá para o endereço indicado.'},status=409)
@@ -212,16 +200,15 @@ def pick(request):
         oi=item.order_item; oi.picked+=quantity; oi.save(update_fields=['picked'])
         Movement.objects.create(product=product,source=item.address,quantity=quantity,movement_type='OUT',reference=f'PICKING:{item.picking.number}',user=request.user)
         item.picking.status='RUNNING'; item.picking.save(update_fields=['status'])
-        if not item.picking.items.filter(picked__lt=models.F('quantity')).exists(): item.picking.status='DONE'; item.picking.save(update_fields=['status'])
-        if not oi.order.items.filter(picked__lt=models.F('quantity')).exists(): oi.order.status='PICKED'; oi.order.save(update_fields=['status'])
+        if not item.picking.items.filter(picked__lt=F('quantity')).exists(): item.picking.status='DONE'; item.picking.save(update_fields=['status'])
+        if not oi.order.items.filter(picked__lt=F('quantity')).exists(): oi.order.status='PICKED'; oi.order.save(update_fields=['status'])
     return Response({'ok':True,'message':'Produto conferido e separado corretamente.'})
 
 @api_view(['POST'])
 @authentication_classes([TokenAuthentication])
 @permission_classes([IsAuthenticated])
 def validate_imei(request):
-    number=''.join(ch for ch in str(request.data.get('imei','')).strip() if ch.isdigit())
-    product_id=request.data.get('product_id')
+    number=''.join(ch for ch in str(request.data.get('imei','')).strip() if ch.isdigit()); product_id=request.data.get('product_id')
     if not luhn(number): return Response({'ok':False,'valid':False,'error':'IMEI inválido: são necessários 15 dígitos e dígito verificador Luhn correto.'},status=400)
     obj=Imei.objects.select_related('product','address').filter(number=number).first()
     if not obj: return Response({'ok':False,'valid':False,'registered':False,'error':'IMEI válido, porém não cadastrado no WMS.'},status=404)
