@@ -14,8 +14,7 @@ class ProductBarcode(models.Model):
     code=models.CharField(max_length=80,unique=True)
     kind=models.CharField(max_length=30,default='EAN/QR')
     active=models.BooleanField(default=True)
-    class Meta:
-        ordering=['code']
+    class Meta: ordering=['code']
     def __str__(self): return f'{self.code} -> {self.product.code}'
 
 class Address(models.Model):
@@ -42,6 +41,16 @@ class Stock(models.Model):
     class Meta: unique_together=('product','address','lot')
     @property
     def available(self): return self.quantity-self.reserved-self.blocked
+
+class Imei(models.Model):
+    STATUS=[('AVAILABLE','Disponível'),('RESERVED','Reservado'),('PICKED','Separado'),('SHIPPED','Expedido'),('BLOCKED','Bloqueado')]
+    product=models.ForeignKey(Product,related_name='imeis',on_delete=models.PROTECT)
+    number=models.CharField(max_length=15,unique=True)
+    address=models.ForeignKey(Address,null=True,blank=True,on_delete=models.PROTECT)
+    status=models.CharField(max_length=20,choices=STATUS,default='AVAILABLE')
+    receipt=models.ForeignKey('Receipt',null=True,blank=True,on_delete=models.SET_NULL)
+    created_at=models.DateTimeField(auto_now_add=True)
+    updated_at=models.DateTimeField(auto_now=True)
 
 class Receipt(models.Model):
     STATUS=[('OPEN','Aberta'),('CHECKING','Conferindo'),('DONE','Finalizada'),('DIVERGENCE','Divergência')]
